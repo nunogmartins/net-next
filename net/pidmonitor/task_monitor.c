@@ -34,21 +34,25 @@
 
 #include "pidmonitor.h"
 #include "db_monitor.h"
+#include "multi_pid_repository.h"
 
 static void read_from_fdtable(struct task_struct *task)
 {
 	int fd;
 	int max_fds;
 	struct file *file;
+	struct multi_repo_node *t = multi_pid_search(task->pid);
 
-	max_fds = task->files->fdt->max_fds;
-	for (fd = 0; fd < max_fds ; fd++) {
-		file = fcheck_files(task->files, fd);
-		if (file) {
-			struct packet_info pi;
-			pi.pid = task->pid;
-			if (!get_local_packet_info_from_file(file, &pi))
-				monitor_insert(&pi);
+	if (t != NULL) {
+		max_fds = task->files->fdt->max_fds;
+		for (fd = 0; fd < max_fds ; fd++) {
+			file = fcheck_files(task->files, fd);
+			if (file) {
+				struct packet_info pi;
+				pi.pid = task->pid;
+				if (!get_local_packet_info_from_file(file, &pi))
+					__monitor_insert(&t->tree, &pi);
+			}
 		}
 	}
 }

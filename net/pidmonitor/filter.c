@@ -73,6 +73,18 @@
 
 #include "pidmonitor.h"
 #include "db_monitor.h"
+#include "multi_pid_repository.h"
+
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#include "debugfs_monitor.h"
+
+static struct dentry *filter_dir;
+static struct filter_stats {
+	unsigned long packets;
+	unsigned long accepted;
+	unsigned long rejected;
+} filter_stats;
 
 /* No hurry in this branch */
 static void *__load_pointer(const struct sk_buff *skb, int k, unsigned int size)
@@ -111,6 +123,8 @@ unsigned int process_packets(const struct sk_buff *skb,
 	/*
 	 * Process array of filter instructions.
 	 */
+
+	filter_stats.packets++;
 	for (;; fentry++) {
 #if defined(CONFIG_X86_32)
 #define	K (fentry->k)
@@ -267,7 +281,7 @@ load_b:
 			A = X;
 			continue;
 		case BPF_S_MISC_PROC:
-			A = dynamic_filter(skb, ((fentry+1)->k)) ? ((fentry+1)->k) : 0;
+			A = dynamic_filter(skb, ((fentry+1)->k)) > 0 ? ((fentry+1)->k) : 0;
 			continue;
 		case BPF_S_RET_K:
 			return K;
@@ -379,6 +393,10 @@ static inline int get_packet_info(const struct sk_buff *skb,
 	if (ptr != NULL) {
 		src_pi->protocol = *(u8 *)ptr;
 		dst_pi->protocol = *(u8 *)ptr;
+		if (((*(u8 *)ptr) == 0x06) || ((*(u8 *)ptr) == 0x11))
+			;
+		else
+			goto out;
 	} else
 		goto out;
 
@@ -419,14 +437,17 @@ out:
 	return -1;
 }
 
-int packet_belongs(struct packet_info *src_pi, struct packet_info *dst_pi)
+int packet_belongs(struct packet_info *src_pi, struct packet_info *dst_pi, struct multi_repo_node *t)
 {
 	if ((src_pi->protocol == IPPROTO_TCP || src_pi->protocol == IPPROTO_UDP)) {
-		if (monitor_search(src_pi))
+		if (__monitor_search(&t->tree, src_pi)) {
+			filter_stats.accepted++;
 			return src_pi->pid;
-
-		if (monitor_search(dst_pi))
+		}
+		if (__monitor_search(&t->tree, dst_pi)) {
+			filter_stats.accepted++;
 			return dst_pi->pid;
+		}
 	}
 
 	return 0;
@@ -439,16 +460,20 @@ int dynamic_filter(const struct sk_buff *skb, const int pid)
 	u32 tmp;
 	int err = -ENODATA;
 
+	struct multi_repo_node *t = multi_pid_search(pid);
+	if (t == NULL)
+		return err;
+
 	ptr = skb_header_pointer(skb, 12, 2, &tmp);
 	if (ptr != NULL) {
 		A = get_unaligned_be16(ptr);
-		if (A == 0x800) {
+		if (A == 0x0800) {
 			struct packet_info dst_pi;
 			struct packet_info src_pi;
 			dst_pi.pid = pid;
 			src_pi.pid = pid;
 			if (!get_packet_info(skb, &src_pi, &dst_pi))
-				return packet_belongs(&src_pi, &dst_pi);
+				return packet_belongs(&src_pi, &dst_pi, t);
 		}
 	}
 	return err;
@@ -460,9 +485,33 @@ unsigned int process_filter_function(const struct sk_buff *skb,
 	return dynamic_filter(skb, pid);
 }
 
+static int filter_monitor_seq_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "packets %lu accepted %lu rejected %lu",
+			filter_stats.packets, filter_stats.accepted,
+			filter_stats.rejected);
+	return 0;
+}
+
+static int filter_monitor_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, filter_monitor_seq_show, inode->i_private);
+}
+
+static const struct file_operations filter_monitor_fops = {
+	.open           = filter_monitor_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+	.owner          = THIS_MODULE,
+};
+
 int init_filter(void)
 {
 	register_filter_function(&ff);
+	filter_dir = filter_debug_monitor("filter");
+	debugfs_create_file("filter_stats", S_IRUSR, filter_dir, &filter_stats,
+			&filter_monitor_fops);
 	return 0;
 }
 void exit_filter(void)

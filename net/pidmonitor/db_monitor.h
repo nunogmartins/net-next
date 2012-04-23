@@ -48,4 +48,11 @@ void clear_all_info(struct rb_root *root);
 void init_db_monitor(void);
 void exit_db_monitor(void);
 
+struct port_info *__monitor_search(struct rb_root *root, struct packet_info *pi);
+int __monitor_insert(struct rb_root *root, struct packet_info *lpi);
+void __monitor_erase(struct rb_root *root, struct packet_info *pi);
+
+struct seq_file;
+void print_repository(struct seq_file *m, struct rb_root *root);
+
 #endif /* _PORTSDB_MONITOR_H */
