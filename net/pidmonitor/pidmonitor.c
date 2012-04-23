@@ -32,7 +32,10 @@
 #include "pidmonitor.h"
 #include "filter.h"
 #include "syscalls_monitor.h"
+#include "multi_pid_repository.h"
 #include "db_monitor.h"
+#include "debugfs_monitor.h"
+#include "inject_monitor.h"
 
 struct local_addresses_list *local_list;
 
@@ -76,9 +79,12 @@ int remove_local_addresses_list(struct local_addresses_list *list)
 
 static int __init monitor_init(void)
 {
+	init_debugfs_monitor();
 	init_syscalls_monitor();
+	init_multi_repo();
 	init_db_monitor();
 	init_filter();
+	init_inject_monitor();
 
 	local_list = list_all_devices_address();
 	return 0;
@@ -87,10 +93,12 @@ static int __init monitor_init(void)
 static void __exit monitor_exit(void)
 {
 	int ret = -1;
-
+	exit_debugfs_monitor();
+	exit_multi_repo();
 	exit_db_monitor();
 	exit_filter();
 	exit_syscalls_monitor();
+	exit_inject_monitor();
 
 	ret = remove_local_addresses_list(local_list);
 	if (ret == 0)

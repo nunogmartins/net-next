@@ -36,28 +36,45 @@
 
 #include <linux/pid.h>
 #include <asm-generic/errno.h>
+#include <linux/socket.h>
+
+#include <linux/bitmap.h>
 
 #include "pidmonitor.h"
+#include "multi_pid_repository.h"
 #include "db_monitor.h"
 
-u64 pid = -1, ppid = -1, tgid = -1;
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#include "debugfs_monitor.h"
 
-void set_process_identifiers(u64 lpid)
+pid_t pid = -1, ppid = -1, tgid = -1;
+/*
+ * Using a bitmap for fast search for
+ * a process id
+ */
+static DECLARE_BITMAP(pid_table, 32768);
+static struct dentry *syscalls_dir;
+static struct stats {
+} syscalls_stats;
+
+void set_process_identifiers(pid_t lpid)
 {
 	pid = lpid;
+	set_bit((int)lpid, pid_table);
 }
 
 int init_process_filter_function_fn(struct filter_function_struct *ffs)
 {
 	set_process_identifiers(ffs->pid);
+	multi_repo_create(ffs->pid);
 	init_repo_task(ffs->pid);
 	return 0;
 }
 int kprobes_index;
-
 #define TO_MONITOR(t) \
 	do { \
-		if (pid == t->pid) \
+		if (test_bit(t->pid, pid_table)) \
 			goto monitor; \
 		else { \
 			my_data->fd = -1; \
@@ -112,8 +129,11 @@ static int sendto_ret_handler(struct kretprobe_instance *ri, struct pt_regs *reg
 
 	if (retval >= 0 || retval == -EAGAIN || retval == -EINPROGRESS || retval == -EALREADY) {
 		pi.pid = ri->task->pid;
-		if (!get_local_packet_info_from_fd(fd, &pi))
-			monitor_insert(&pi);
+		if (!get_local_packet_info_from_fd(fd, &pi)) {
+			struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+			if (t != NULL)
+				__monitor_insert(&t->tree, &pi);
+		}
 	}
 	return 0;
 }
@@ -139,16 +159,18 @@ static int recvfrom_ret_handler(struct kretprobe_instance *ri, struct pt_regs *r
 	struct cell *my_data = (struct cell *)ri->data;
 	struct packet_info pi;
 	int fd = my_data->fd;
-	int err = 0;
 
 	if (my_data->fd == -1)
 		return 0;
 
 	if (retval >= 0 || retval == -EAGAIN || retval == -EINPROGRESS) {
 		pi.pid = ri->task->pid;
-		get_local_packet_info_from_fd(fd, &pi);
-		if (err == 0)
-			monitor_insert(&pi);
+		if (!get_local_packet_info_from_fd(fd, &pi)) {
+			struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+			if (t != NULL)
+				__monitor_insert(&t->tree, &pi);
+		}
+
 	}
 
 	return 0;
@@ -176,8 +198,12 @@ static int accept_ret_handler(struct kretprobe_instance *ri, struct pt_regs *reg
 
 	if (retval > 0) {
 		pi.pid = ri->task->pid;
-		if (!get_local_packet_info_from_fd(retval, &pi))
-			monitor_insert(&pi);
+		if (!get_local_packet_info_from_fd(retval, &pi)) {
+			struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+			if (t != NULL)
+				__monitor_insert(&t->tree, &pi);
+		}
+
 	}
 
 	return 0;
@@ -216,8 +242,11 @@ static int close_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs
 	if (ci->fd == -1)
 		return 0;
 
-	if (retval == 0)
-		monitor_erase(&(ci->pi));
+	if (retval == 0) {
+		struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+		if (t != NULL)
+			__monitor_erase(&t->tree, &(ci->pi));
+	}
 	return 0;
 }
 
@@ -248,9 +277,11 @@ static int bind_ret_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
 		return 0;
 
 	pi.pid = ri->task->pid;
-	if (retval == 0 && !get_local_packet_info_from_fd(fd, &pi))
-		monitor_insert(&pi);
-
+	if (retval == 0 && !get_local_packet_info_from_fd(fd, &pi)) {
+		struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+		if (t != NULL)
+			__monitor_insert(&t->tree, &pi);
+	}
 	return 0;
 }
 
@@ -271,10 +302,12 @@ monitor:
 	my_data->fd = fd;
 
 	if (!get_local_packet_info_from_fd(fd, &(my_data->external))) {
+		struct multi_repo_node *t = multi_pid_search(ri->task->pid);
 		my_data->external.address = ntohl(in->sin_addr.s_addr);
 		my_data->external.port = ntohs(in->sin_port);
 		(my_data->external).pid = task->pid;
-		monitor_insert(&(my_data->external));
+		if (t != NULL)
+			__monitor_insert(&t->tree, &(my_data->external));
 	} else
 		my_data->fd = -1;
 
@@ -292,10 +325,14 @@ static int connect_ret_handler(struct kretprobe_instance *ri, struct pt_regs *re
 		return 0;
 
 	if (retval == 0 || retval == -EINPROGRESS || retval == -EALREADY || retval == -EISCONN || retval == -EAGAIN) {
-		monitor_erase(&(my_data->external));
+		struct multi_repo_node *t = multi_pid_search(ri->task->pid);
+		if (t != NULL)
+			__monitor_erase(&t->tree, &(my_data->external));
 		pi.pid = ri->task->pid;
-		if (!get_local_packet_info_from_fd(fd, &pi))
-			monitor_insert(&pi);
+		if (!get_local_packet_info_from_fd(fd, &pi)) {
+			if (t != NULL)
+				__monitor_insert(&t->tree, &pi);
+		}
 	}
 
 	return 0;
@@ -326,9 +363,27 @@ static int instantiation_kretprobe(struct kretprobe *kret,
 	return ret;
 }
 
-/* function called on module init to initialize kretprobes
- * common to tcp and udp
-*/
+static int syscalls_monitor_seq_show(struct seq_file *m, void *v)
+{
+	return 0;
+}
+
+static int syscalls_monitor_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, syscalls_monitor_seq_show, inode->i_private);
+}
+
+static const struct file_operations syscalls_monitor_fops = {
+	.open           = syscalls_monitor_open,
+	.read           = seq_read,
+	.llseek         = seq_lseek,
+	.release        = single_release,
+	.owner          = THIS_MODULE,
+};
+
+/*
+ * function called on module init to initialize kretprobes common to tcp and udp
+ */
 
 static int init_kretprobes_syscalls(void)
 {
@@ -342,6 +397,8 @@ static int init_kretprobes_syscalls(void)
 	ret = instantiation_kretprobe((kretprobes+kprobes_index),
 			"sys_bind", bind_ret_handler, bind_entry_handler,
 			(ssize_t)sizeof(struct cell));
+	debugfs_create_file("sys_bind", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 	if (ret < 0)
 		return -1;
@@ -350,6 +407,8 @@ static int init_kretprobes_syscalls(void)
 			"sys_connect", connect_ret_handler,
 			connect_entry_handler,
 			(ssize_t)sizeof(struct connect_extern_info));
+	debugfs_create_file("sys_connect", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 	if (ret < 0)
 		return -1;
@@ -357,6 +416,8 @@ static int init_kretprobes_syscalls(void)
 	ret = instantiation_kretprobe((kretprobes+kprobes_index),
 			"sock_close", close_ret_handler, close_entry_handler,
 			(ssize_t)sizeof(struct packet_info));
+	debugfs_create_file("sock_close", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 	if (ret < 0)
 		return -1;
@@ -364,6 +425,8 @@ static int init_kretprobes_syscalls(void)
 	ret = instantiation_kretprobe((kretprobes+kprobes_index),
 			"sys_accept4", accept_ret_handler, accept_entry_handler,
 			(ssize_t)sizeof(struct cell));
+	debugfs_create_file("sys_accept4", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 		if (ret < 0)
 			return -1;
@@ -371,6 +434,8 @@ static int init_kretprobes_syscalls(void)
 	ret = instantiation_kretprobe((kretprobes+kprobes_index),
 			"sys_sendto", sendto_ret_handler, sendto_entry_handler,
 			(ssize_t)sizeof(struct cell));
+	debugfs_create_file("sys_sendto", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 	if (ret < 0)
 		return -1;
@@ -378,6 +443,8 @@ static int init_kretprobes_syscalls(void)
 	ret = instantiation_kretprobe((kretprobes+kprobes_index),
 			"sys_recvfrom", recvfrom_ret_handler,
 			recvfrom_entry_handler, (ssize_t)sizeof(struct cell));
+	debugfs_create_file("sys_recvfrom", S_IRUSR, syscalls_dir, &syscalls_stats,
+				&syscalls_monitor_fops);
 	kprobes_index += 1;
 	if (ret < 0)
 		return -1;
@@ -404,7 +471,10 @@ static void destroy_kretprobes_syscalls(void)
 
 int init_syscalls_monitor(void)
 {
-	return init_kretprobes_syscalls();
+	int ret = 0;
+	syscalls_dir = syscalls_debug_monitor("syscalls");
+	ret = init_kretprobes_syscalls();
+	return ret;
 }
 
 void exit_syscalls_monitor(void)

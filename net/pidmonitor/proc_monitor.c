@@ -113,5 +113,5 @@ int get_local_packet_info_from_fd(unsigned int fd, struct packet_info *pi)
 		fput(f);
 		return ret;
 	}
-	return -3;
+	return ret;
 }

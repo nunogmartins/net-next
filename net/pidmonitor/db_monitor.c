@@ -28,6 +28,8 @@
 #include <linux/types.h>
 
 #include <linux/in.h>
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
 
 #include "pidmonitor.h"
 #include "db_monitor.h"
@@ -69,7 +71,7 @@ static int is_equal_packet_info(struct packet_info *pi,
 	return 0;
 }
 
-static struct port_info *__monitor_search(struct rb_root *root, struct packet_info *pi)
+struct port_info *__monitor_search(struct rb_root *root, struct packet_info *pi)
 {
 	struct rb_node *node = root->rb_node;
 	struct port_info *data = NULL;
@@ -208,7 +210,7 @@ static struct port_info *create_packet_info(struct packet_info *lpi)
 	return pi;
 }
 
-static int __monitor_insert(struct rb_root *root, struct packet_info *lpi)
+int __monitor_insert(struct rb_root *root, struct packet_info *lpi)
 {
 	struct rb_node **new = &(root->rb_node), *parent = NULL;
 	struct port_info *port = NULL;
@@ -312,7 +314,7 @@ static void remove_address_from_node(struct port_info *pi, struct packet_info *l
 	}
 }
 
-static void __monitor_erase(struct rb_root *root, struct packet_info *pi)
+void __monitor_erase(struct rb_root *root, struct packet_info *pi)
 {
 	struct port_info *data = __monitor_search(root, pi);
 
@@ -374,6 +376,53 @@ void clear_all_info(struct rb_root *root)
 		rb_erase(node, root);
 		kfree(p);
 		p = NULL;
+		node = next_node;
+	}
+}
+
+static void __print_addresses_list(struct seq_file *m, struct local_addresses_list *list)
+{
+	struct local_addresses_list *tmp = NULL;
+	struct list_head *pos = NULL, *q = NULL;
+
+	struct local_addresses_list *aux = list;
+	list_for_each_safe(pos, q, &(aux->list)) {
+		tmp = list_entry(pos, struct local_addresses_list, list);
+		/*seq_printf(m, "address: %d.%d.%d.%d\t",
+		 * 		NIPQUAD(tmp->address));*/
+	}
+}
+
+static void __print_node(struct seq_file *m, struct port_info *p)
+{
+	seq_printf(m, "Port %d\n", p->port);
+	if (p->tcp != NULL) {
+		seq_printf(m, "tcp list:\n");
+		__print_addresses_list(m, p->tcp);
+	}
+	if (p->udp != NULL) {
+		seq_printf(m, "udp list:\n");
+		__print_addresses_list(m, p->udp);
+	}
+}
+
+void print_repository(struct seq_file *m, struct rb_root *root)
+{
+	struct rb_node *node = NULL, *next_node = NULL;
+	struct port_info *p = NULL;
+
+	node = rb_first(root);
+	while (node) {
+		next_node = rb_next(node);
+		p = rb_entry(node, struct port_info, node);
+		/*
+		   clear_node_info(p);
+		   rb_erase(node, root);
+		   kfree(p);
+		   p = NULL;
+		   */
+		__print_node(m, p);
+		seq_printf(m, "\n");
 		node = next_node;
 	}
 }
