@@ -69,7 +69,17 @@ int init_process_filter_function_fn(struct filter_function_struct *ffs)
 	set_process_identifiers(ffs->pid);
 	multi_repo_create(ffs->pid);
 	init_repo_task(ffs->pid);
+	try_module_get(THIS_MODULE);
 	return 0;
+}
+
+void exit_process_filter_function_fn(struct filter_function_struct *ffs)
+{
+	/*
+	 * clean stuff
+	 */
+
+	module_put(THIS_MODULE);
 }
 int kprobes_index;
 #define TO_MONITOR(t) \

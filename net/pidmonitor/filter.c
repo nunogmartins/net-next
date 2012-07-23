@@ -376,6 +376,7 @@ int init_process_filter_function_fn(struct filter_function_struct *ffs);
 static struct filter_function ff = {
 	.name = "process_packet_filter",
 	.init_func = &init_process_filter_function_fn,
+	.exit_func = &exit_process_filter_function_fn,
 	.func = &process_packets
 };
 

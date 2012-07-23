@@ -52,6 +52,7 @@ int remove_local_addresses_list(struct local_addresses_list *list);
 extern struct net inet;
 
 int init_process_filter_function_fn(struct filter_function_struct *ffs);
+void exit_process_filter_function_fn(struct filter_function_struct *ffs);
 void init_repo_task(int pidnr);
 
 #endif /* _PID_MONITOR_H */
