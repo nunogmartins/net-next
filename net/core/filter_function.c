@@ -116,9 +116,10 @@ int detach_filter_function(struct filter_function_struct *ffs, struct sock *sk)
 			sock_owned_by_user(sk));
 
 	ff = find_filter_function_by_addr(old_fp->bpf_func);
-	if (ff)
+	if (ff != NULL) {
+		ff->exit_func(ffs);
 		return 0;
-
+	}
 	return -1;
 }
 EXPORT_SYMBOL(detach_filter_function);

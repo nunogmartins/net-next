@@ -320,6 +320,7 @@ struct filter_function {
 	struct list_head list;
 	char name[FILTER_FUNCTION_NAME_LEN];
 	int (*init_func)(struct filter_function_struct *ffs);
+	void (*exit_func)(struct filter_function_struct *ffs);
 	unsigned int (*func)(const struct sk_buff *skb, const struct sock_filter *filter);
 };
 
