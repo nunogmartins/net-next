@@ -258,6 +258,14 @@ config BPF_JIT
 	  packet sniffing (libpcap/tcpdump). Note : Admin should enable
 	  this feature changing /proc/sys/net/core/bpf_jit_enable
 
+config FILTER_FUNCTION
+	bool "enable definition of a sniff function"
+	depends on MODULES
+	default y
+	---help---
+	Dynamicaly define what sniffer function would be used to filter
+	packets
+
 menu "Network testing"
 
 config NET_PKTGEN

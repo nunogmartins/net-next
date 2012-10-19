@@ -74,4 +74,8 @@
 
 #define SO_LOCK_FILTER		44
 
+#ifdef CONFIG_FILTER_FUNCTION
+#define SO_ATTACH_FILTER_FUNC	45
+#define SO_DETACH_FILTER_FUNC	46
+#endif
 #endif /* __ASM_GENERIC_SOCKET_H */
