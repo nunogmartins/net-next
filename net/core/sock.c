@@ -873,6 +873,29 @@ set_rcvbuf:
 			sock_valbool_flag(sk, SOCK_FILTER_LOCKED, valbool);
 		break;
 
+#ifdef CONFIG_FILTER_FUNCTION
+	case SO_ATTACH_FILTER_FUNC:
+		ret = -EINVAL;
+		if (optlen == sizeof(struct filter_function_struct)) {
+			struct filter_function_struct ff;
+			ret = -EFAULT;
+			if (copy_from_user(&ff, optval, sizeof(ff)))
+				break;
+			ret = attach_filter_function(&ff, sk);
+		}
+		break;
+	case SO_DETACH_FILTER_FUNC:
+		ret = -EINVAL;
+		if (optlen == sizeof(struct filter_function_struct)) {
+			struct filter_function_struct ff;
+			ret = -EFAULT;
+			if (copy_from_user(&ff, optval, sizeof(ff)))
+				break;
+			ret = detach_filter_function(&ff, sk);
+		}
+		break;
+#endif
+
 	case SO_PASSSEC:
 		if (valbool)
 			set_bit(SOCK_PASSSEC, &sock->flags);

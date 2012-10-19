@@ -639,7 +639,8 @@ void sk_filter_release_rcu(struct rcu_head *rcu)
 {
 	struct sk_filter *fp = container_of(rcu, struct sk_filter, rcu);
 
-	bpf_jit_free(fp);
+	if (detect_filter_function(fp))
+		bpf_jit_free(fp);
 	kfree(fp);
 }
 EXPORT_SYMBOL(sk_filter_release_rcu);

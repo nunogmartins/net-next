@@ -58,7 +58,7 @@ static inline void bpf_jit_compile(struct sk_filter *fp)
 static inline void bpf_jit_free(struct sk_filter *fp)
 {
 }
-#define SK_RUN_FILTER(FILTER, SKB) sk_run_filter(SKB, FILTER->insns)
+#define SK_RUN_FILTER(FILTER, SKB) (*FILTER->bpf_func)(SKB, FILTER->insns)
 #endif
 
 enum {

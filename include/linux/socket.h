@@ -302,6 +302,33 @@ struct ucred {
 /* IPX options */
 #define IPX_TYPE	1
 
+#ifdef CONFIG_FILTER_FUNCTION
+#define FILTER_FUNCTION_NAME_LEN 25
+struct filter_function_struct {
+	char name[FILTER_FUNCTION_NAME_LEN];
+	int pid;
+};
+
+#include <linux/list.h>
+
+struct sk_buff;
+struct sock_filter;
+struct sock;
+struct sk_filter;
+
+struct filter_function {
+	struct list_head list;
+	char name[FILTER_FUNCTION_NAME_LEN];
+	int (*init_func)(struct filter_function_struct *ffs);
+	unsigned int (*func)(const struct sk_buff *skb, const struct sock_filter *filter);
+};
+
+extern int attach_filter_function(struct filter_function_struct *ffs, struct sock *sk);
+extern int detach_filter_function(struct filter_function_struct *ffs, struct sock *sk);
+extern int register_filter_function(struct filter_function *ff);
+extern int unregister_filter_function(struct filter_function *ff);
+extern int detect_filter_function(struct sk_filter *fp);
+#endif
 extern void cred_to_ucred(struct pid *pid, const struct cred *cred, struct ucred *ucred);
 
 extern int memcpy_fromiovec(unsigned char *kdata, struct iovec *iov, int len);
