@@ -304,6 +304,10 @@ load_b:
 		case BPF_S_MISC_TXA:
 			A = X;
 			continue;
+		case BPF_S_MISC_PROC:
+			if ((fentry+1)->code == BPF_S_JMP_JEQ_K)
+				fentry += 1;
+			continue;
 		case BPF_S_RET_K:
 			return K;
 		case BPF_S_RET_A:
@@ -514,6 +518,7 @@ int sk_chk_filter(struct sock_filter *filter, unsigned int flen)
 		[BPF_LDX|BPF_IMM]        = BPF_S_LDX_IMM,
 		[BPF_MISC|BPF_TAX]       = BPF_S_MISC_TAX,
 		[BPF_MISC|BPF_TXA]       = BPF_S_MISC_TXA,
+		[BPF_MISC|BPF_PROC]	 = BPF_S_MISC_PROC,
 		[BPF_RET|BPF_K]          = BPF_S_RET_K,
 		[BPF_RET|BPF_A]          = BPF_S_RET_A,
 		[BPF_ALU|BPF_DIV|BPF_K]  = BPF_S_ALU_DIV_K,

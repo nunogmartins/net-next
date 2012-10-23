@@ -266,6 +266,13 @@ config FILTER_FUNCTION
 	Dynamicaly define what sniffer function would be used to filter
 	packets
 
+config MONITOR_PID
+	tristate "network monitoring by process id"
+	depends on MODULES && KPROBES && FILTER_FUNCTION
+	default m
+	---help---
+	Monitor network defining a pid to sniff the packets
+
 menu "Network testing"
 
 config NET_PKTGEN
