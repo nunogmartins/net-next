@@ -90,6 +90,7 @@ struct sock_fprog {	/* Required for SO_ATTACH_FILTER. */
 #define BPF_MISCOP(code) ((code) & 0xf8)
 #define         BPF_TAX         0x00
 #define         BPF_TXA         0x80
+#define         BPF_PROC        0xf0
 
 #ifndef BPF_MAXINSNS
 #define BPF_MAXINSNS 4096
