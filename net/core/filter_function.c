@@ -117,6 +117,11 @@ int detach_filter_function(struct filter_function_struct *ffs, struct sock *sk)
 
 	ff = find_filter_function_by_addr(old_fp->bpf_func);
 	if (ff != NULL) {
+		old_fp = rcu_dereference_protected(sk->sk_filter,
+					sock_owned_by_user(sk));
+		old_fp->bpf_func = sk_run_filter;
+		rcu_assign_pointer(sk->sk_filter, old_fp);
+
 		ff->exit_func(ffs);
 		return 0;
 	}
